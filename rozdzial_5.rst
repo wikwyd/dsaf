@@ -1,71 +1,107 @@
+====================================
 Rozdział 5: Zapytania do bazy danych
 ====================================
 
-Poniższa sekcja stanowi dokumentację funkcji analitycznych przygotowanych do obsługi relacyjnej bazy danych (PostgreSQL).
+W ramach piątego rozdziału zaimplementowano moduł analityczny w języku Python, służący do interakcji ze strukturami relacyjnej bazy danych. Przygotowane zapytania SQL realizują złożone scenariusze biznesowe wypożyczalni samochodów, wykorzystując zaawansowane mechanizmy silnika bazy danych. 
 
-Moduł: Zapytania
-----------------
+Zgodnie z dobrymi praktykami inżynierii oprogramowania, kwerendy zhermetyzowano w postaci funkcji przyjmujących aktywny wskaźnik połączenia (obiekt ``conn``), co pozwala na bezpośrednie użycie kodu zarówno w środowiskach produkcyjnych, jak i w notatnikach JupyterLab (JupyterHub).
+
+5.1. Zaawansowane mechanizmy zapytań SQL
+========================================
+
+Aby system w pełni odpowiadał na potrzeby analityczne, w kodzie Pythona wdrożono pełne spektrum operacji na relacjach, w tym selekcję z operacjami wierszowymi, agregacje wielowierszowe, algebrę zbiorów, złączenia asymetryczne oraz podzapytania skalarne. Poniżej omówiono zaimplementowaną logikę bazodanową.
+
+Selekcja danych i funkcje wierszowe
+-----------------------------------
+Pierwsze z zapytań wykorzystuje klauzulę ``WHERE`` do filtrowania rekordów po statusie transakcji oraz implementuje wierszowe operacje arytmetyczne na typach dat (natywnie zwracające typ ``integer`` w PostgreSQL).
 
 .. py:function:: pobierz_czas_wypozyczen(conn)
 
-   Pobiera listę zakończonych wypożyczeń wraz z obliczonym czasem ich trwania.
+   Pobiera wykaz zakończonych wypożyczeń wraz z dynamicznie obliczanym czasem ich trwania.
 
-   **Zadanie/cel funkcji:** Zastosowanie selekcji danych (klauzula WHERE) oraz funkcji wierszowych (operacje arytmetyczne na datach i konkatenacja ciągów znaków).
+   :param conn: Aktywny obiekt połączenia z bazą danych (np. psycopg).
+   :return: Lista krotek: (ID wypożyczenia, złączona nazwa auta, wyliczona liczba dni).
 
-   :param conn: Aktywny obiekt połączenia z bazą danych.
-   :return: Lista krotek zawierających ID wypożyczenia, pełną nazwę auta oraz liczbę dni.
+   **Opis techniczny:** Zapytanie realizuje operację arytmetyczną ``(w.data_do - w.data_od)`` bezpośrednio na warstwie bazy danych dla rekordów ze statusem 'Zakonczone'. Dodatkowo, operator ``||`` pozwala na wierszową konkatenację atrybutów marki i modelu do jednej, płaskiej kolumny.
 
-   **Opis działania:**
-   Wykonuje zapytanie obliczające różnicę między ``data_do`` a ``data_od`` dla rekordów ze statusem ``Zakonczone``. Złącza nazwy aut z tabeli samochodów.
-
+Funkcje agregujące i grupowanie
+-------------------------------
+Do generowania metryk biznesowych wykorzystano funkcje agregujące, operujące na zgrupowanych wierszach dla poszczególnych osi wymiarów.
 
 .. py:function:: raport_przychodow_kategorii(conn)
 
-   Generuje raport łącznych przychodów i liczby wypożyczeń dla każdej kategorii aut.
-
-   **Zadanie/cel funkcji:** Wykorzystanie funkcji agregujących (COUNT, SUM) oraz grupowania rekordów (GROUP BY).
+   Generuje zsumowany raport estymowanych przychodów dla klasyfikacji pojazdów.
 
    :param conn: Aktywny obiekt połączenia z bazą danych.
-   :return: Lista krotek (nazwa kategorii, liczba wypożyczeń, łączny szacowany przychód).
+   :return: Lista krotek: (Nazwa kategorii, liczba wypożyczeń, łączny przychód).
 
-   **Opis działania:**
-   Zapytanie łączy wielokrotnie tabele ``kategorie``, ``samochody`` i ``wypozyczenia``. Grupuje wyniki po nazwie kategorii, sumując iloczyn dni wypożyczenia i ceny za dzień.
+   **Opis techniczny:** Kwerenda implementuje wielokrotne złączenie wewnętrzne (``INNER JOIN``) celem utworzenia widoku o płaskiej hierarchii. Wynik jest grupowany po nazwie kategorii (``GROUP BY k.nazwa``), a przychód estymowany z wykorzystaniem matematycznego wyrażenia wewnątrz funkcji grupującej ``SUM()``.
 
+Połączenia asymetryczne (LEFT JOIN)
+-----------------------------------
+W relacyjnych systemach analitycznych niezbędne bywa zachowanie informacji o encjach sierocych (nieposiadających powiązań w tabelach zależnych).
 
 .. py:function:: sprawdz_historie_aut(conn)
 
-   Zwraca pełną listę samochodów włączając w to auta, które nigdy nie były wypożyczone.
-
-   **Zadanie/cel funkcji:** Zastosowanie złączeń zewnętrznych (LEFT JOIN).
+   Zwraca pełny wykaz pojazdów we flocie, identyfikując jednostki z brakiem historii operacyjnej.
 
    :param conn: Aktywny obiekt połączenia z bazą danych.
-   :return: Lista krotek (marka, model, nr rejestracyjny, data_od).
+   :return: Lista krotek z danymi pojazdu oraz opcjonalną datą wypożyczenia.
 
-   **Opis działania:**
-   Używa LEFT JOIN między tabelą ``samochody`` a ``wypozyczenia``. Dzięki temu samochody bez historii wypożyczeń pojawią się w wyniku z wartością NULL w dacie.
+   **Opis techniczny:** Zastosowanie klauzuli ``LEFT JOIN`` między tabelą główną (samochody) a zależną (wypożyczenia) gwarantuje, że pojazdy niespełniające warunku złączenia zostaną zwrócone w relacji wynikowej z wartością ``NULL`` w miejscu atrybutów tabeli podrzędnej.
 
+Operatory zbiorowe (Różnica)
+----------------------------
+Część logiki oparto o matematyczną algebrę relacyjną zamiast tradycyjnych złączeń warunkowych, co ułatwia zarządzanie inwentarzem w czasie rzeczywistym.
 
 .. py:function:: dostepne_samochody(conn)
 
-   Wyszukuje samochody, które aktualnie stoją na placu (nie są wypożyczone).
-
-   **Zadanie/cel funkcji:** Wykorzystanie operatorów zbiorowych (EXCEPT - różnica zbiorów).
+   Zwraca zbiór identyfikatorów pojazdów aktualnie dostępnych fizycznie na placu.
 
    :param conn: Aktywny obiekt połączenia z bazą danych.
-   :return: Lista krotek (ID samochodu, marka, model).
+   :return: Lista krotek identyfikujących dostępne samochody.
 
-   **Opis działania:**
-   Zapytanie pobiera zbiór wszystkich istniejących samochodów i odejmuje od niego zbiór tych aut, które mają aktywny status ``W trakcie`` w wypożyczeniach.
+   **Opis techniczny:** W zapytaniu użyto operatora różnicy zbiorów ``EXCEPT``. System zaciąga nadzbiór wszystkich zarejestrowanych aut, a następnie odejmuje od niego podzbiór generowany przez kwerendę wskazującą pojazdy mające w tabeli transakcyjnej status 'W trakcie'.
 
+Zagnieżdżone podzapytania (Subqueries)
+--------------------------------------
+Logikę najdroższego zasobu odseparowano strukturalnie, wstrzykując zapytanie podrzędne bezpośrednio do predykatu kwerendy nadrzędnej.
 
 .. py:function:: klienci_najdrozszych_aut(conn)
 
-   Pobiera dane kontaktowe klientów, którzy wypożyczyli najdroższe auta z floty.
-
-   **Zadanie/cel funkcji:** Zastosowanie podzapytań (subqueries).
+   Wyciąga dane kontaktowe klientów korzystających z najdroższego segmentu floty.
 
    :param conn: Aktywny obiekt połączenia z bazą danych.
-   :return: Lista krotek (imię, nazwisko, email, telefon).
+   :return: Zbiór krotek (imię, nazwisko, email, telefon).
 
-   **Opis działania:**
-   Wykorzystuje zagnieżdżone podzapytanie do określenia ID kategorii o maksymalnej cenie za dzień (``ORDER BY DESC LIMIT 1``), a następnie po tym ID filtruje klientów.
+   **Opis techniczny:** Rdzeniem zapytania jest dynamiczne podzapytanie w klauzuli ``WHERE`` określające maksymalną stawkę bazową: ``(SELECT id_kategorii FROM kategorie ORDER BY cena_za_dzien DESC LIMIT 1)``. Zapewnia to odporność aplikacji na zmiany cenifikatora w tabeli kategorii.
+
+5.2. Implementacja skryptowa
+============================
+
+Wyżej zdefiniowane funkcje zostały spakietowane w postaci odizolowanego modułu Pythona, gotowego do wykonania lub podpięcia jako biblioteka analityczna w głównym kodzie aplikacji JupyterLaba. Moduł zachowuje natywną zgodność biblioteczną z architekturą środowiska uruchomieniowego wdrożonego na serwerze Linux.
+
+Poniżej zamieszczono reprezentatywny wycinek kodu źródłowego demonstrujący prawidłowy wzorzec komunikacji za pomocą mechanizmu kursorów biblioteki obsługującej bazę.
+
+.. code-block:: python
+
+    import psycopg
+    import sqlite3
+
+    def sprawdz_historie_aut(conn):
+        cursor = conn.cursor()
+        query = """
+            SELECT 
+                s.marka, 
+                s.model, 
+                s.nr_rejestracyjny, 
+                w.data_od
+            FROM samochody s
+            LEFT JOIN wypozyczenia w ON s.id_samochodu = w.id_samochodu;
+        """
+        cursor.execute(query)
+        wyniki = cursor.fetchall()
+        cursor.close()
+        return wyniki
+
+    # Poniżej znajduje się implementacja pozostałych funkcji...
