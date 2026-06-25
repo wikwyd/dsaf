@@ -12,7 +12,6 @@ Wstęp
 
 Niniejszy dokument stanowi techniczną dokumentację laboratorium z przedmiotu Bazy Danych. Celem projektu była transformacja wiedzy teoretycznej w praktyczne kompetencje inżynierskie, obejmujące projektowanie, wdrażanie oraz administrację systemami relacyjnymi. Opracowanie opisuje pełen cykl wdrożeniowy oprogramowania: od analizy wymagań i modelowania (pojęciowego i logicznego), przez fizyczną implementację w środowiskach PostgreSQL i SQLite, aż po automatyzację procesów masowego zasilania struktur bazodanowych (ETL).
 
-==========================
 Wykaz repozytoriów (Linki)
 ==========================
 
