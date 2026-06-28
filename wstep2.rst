@@ -27,7 +27,7 @@ Repozytorium z plikami projektowymi
 -----------------------------------
 Baza kodu deweloperskiego. Przechowuje skrypty strukturalne DDL dostosowane do dialektów PostgreSQL i SQLite, wygenerowany plik wbudowanej bazy danych oraz płaskie zbiory danych (CSV) wykorzystane do zautomatyzowanego populowania tabel.
 
-* **Link:** https://github.com/wikwyd/Repozytorium-Glowne.git
+* **Link:** https://github.com/wikwyd/pliki.git
 
 Repozytoria reszty grupy (Submoduły)
 ------------------------------------
